@@ -47,8 +47,6 @@ void uploadFile(const char *filename) {
 
 void startserver() {
     printf("Server started on port %d \n", PORT);
-
-    
 }
 
 int main(int argc, char *argv[]) {
@@ -65,8 +63,9 @@ int main(int argc, char *argv[]) {
     } else {
         printf("Unknown option or missing argument\n");
         printf("Usage:\n");
-        printf("  %s -start               Start the server\n", argv[0]);
         printf("  %s -up <file>           Upload file directly to the server\n", argv[0]);
+        printf("  %s -list                List the files stored by the employee on the server\n", argv[0]);
+        printf("  %s -down <file>         Download file from the server\n", argv[0]);
         return EXIT_FAILURE;
     }
 
