@@ -2,9 +2,7 @@
 #include "server.h"
 #include <stdio.h>
 
-int startserver(int port);
-int stopserver();
-int getmsg(char msg_read[1024]);
+int sndmsg(char msg[1024], int port); 
 
 int main() {
     printf("Hello Wolrd !\n");
