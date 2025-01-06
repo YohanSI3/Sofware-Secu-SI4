@@ -4,6 +4,9 @@ CC = gcc
 # Options de compilation
 CFLAGS = -Wall -g -I./include
 
+#pour openssl
+LDFLAGS = -lcrypto
+
 # Fichiers source
 SRC = src/client.c src/server.c
 
@@ -23,7 +26,7 @@ $(shell mkdir -p bin)
 
 # Règle principale pour compiler le programme
 $(EXEC): $(OBJ)
-	$(CC) $(OBJ) -o $(EXEC) -L$(LIBDIR) $(LIBS)
+	$(CC) $(OBJ) -o $(EXEC) -L$(LIBDIR) $(LIBS) $(LDFLAGS)
 
 # Règle pour compiler les fichiers objets à partir des fichiers sources
 %.o: %.c
