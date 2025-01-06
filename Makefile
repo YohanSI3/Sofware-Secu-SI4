@@ -2,10 +2,10 @@
 CC = gcc
 
 # Options de compilation
-CFLAGS = -Wall -g
+CFLAGS = -Wall -g -I./include
 
 # Fichiers source
-SRC = src/client.h src/server.h
+SRC = src/client.c src/server.c
 
 # Fichiers objets générés à partir des fichiers source
 OBJ = $(SRC:.c=.o)
@@ -13,9 +13,17 @@ OBJ = $(SRC:.c=.o)
 # Nom de l'exécutable
 EXEC = bin/secTrans
 
+# Répertoires des bibliothèques partagées
+LIBDIR = ./libs
+
+# Bibliothèques partagées
+LIBS = -lclient -lserver
+
+$(shell mkdir -p bin)
+
 # Règle principale pour compiler le programme
 $(EXEC): $(OBJ)
-	$(CC) $(OBJ) -o $(EXEC)
+	$(CC) $(OBJ) -o $(EXEC) -L$(LIBDIR) $(LIBS)
 
 # Règle pour compiler les fichiers objets à partir des fichiers sources
 %.o: %.c
