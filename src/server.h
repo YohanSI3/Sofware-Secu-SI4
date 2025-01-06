@@ -1,4 +1,4 @@
-int startserver(int port);
+void startserver();
 int stopserver();
 
 /* read message sent by client */
