@@ -1,193 +1,131 @@
-#include "client.h"
-#include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <openssl/evp.h>
-#include <sys/stat.h>
-#include <errno.h>
+#include <openssl/sha.h>
+#include "server.h"
 
-#define PORT 8080
-#define DB_FILE "users.db"
-#define STORAGE_PATH "./users"
-#define SALT "random_salt" //Sel utilisé pour le hachage des mots de passe
+#define MAX_MSG_SIZE 1024
+#define USER_DB "users.db"
 
-int stopserver();
+// Hacher un mot de passe avec SHA256
+void hash_password(const char *password, char *hash) {
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256((unsigned char *)password, strlen(password), digest);
 
-/* read message sent by client */
-int getmsg(char msg_read[1024]);
-
-void uploadFile(const char *filename) {
-    char buffer[1024];
-    FILE *source_fp, *dest_fp;
-
-    // Ouvrir le fichier source pour lecture
-    source_fp = fopen(filename, "rb");
-    if (source_fp == NULL) {
-        perror("Error opening source file");
-        return;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(hash + (i * 2), "%02x", digest[i]);
     }
-
-    // Ouvrir un fichier destination pour simuler l'upload
-    dest_fp = fopen("uploaded_file.bin", "wb");
-    if (dest_fp == NULL) {
-        perror("Error opening destination file");
-        fclose(source_fp);
-        return;
-    }
-
-    // Copier les données du fichier source vers le fichier destination
-    int bytes_read;
-    while ((bytes_read = fread(buffer, sizeof(char), sizeof(buffer), source_fp)) > 0) {
-        fwrite(buffer, sizeof(char), bytes_read, dest_fp);
-    }
-
-    printf("File uploaded successfully: %s\n", filename);
-
-    fclose(source_fp);
-    fclose(dest_fp);
+    hash[SHA256_DIGEST_LENGTH * 2] = '\0';
 }
 
-void startserver() {
-    printf("Server started on port %d \n", PORT);
-}
-
-void hash_password(const char *password, char *hashed_password) {
-    unsigned char hash[EVP_MAX_MD_SIZE];
-    unsigned int hash_len;
-
-    char salted_password[256];
-    snprintf(salted_password, sizeof(salted_password), "%s%s", SALT, password);
-
-    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL);
-    EVP_DigestUpdate(mdctx, salted_password, strlen(salted_password));
-    EVP_DigestFinal_ex(mdctx, hash, &hash_len);
-    EVP_MD_CTX_free(mdctx);
-
-    for (unsigned int i = 0; i < hash_len; i++) {
-        sprintf(&hashed_password[i * 2], "%02x", hash[i]);
-    }
-    hashed_password[hash_len * 2] = '\0';
-}
-
-int user_exists(const char *username) {
-    FILE *db = fopen(DB_FILE, "r");
-    if (!db) return 0;
-
-    char line[256];
-    while (fgets(line, sizeof(line), db)) {
-        char stored_username[128];
-        sscanf(line, "%127[^:]", stored_username);
-        if (strcmp(username, stored_username) == 0) {
-            fclose(db);
-            return 1;
-        }
-    }
-
-    fclose(db);
-    return 0;
-}
-
-void create_user_directory(const char *username) {
-    char user_dir[256];
-    snprintf(user_dir, sizeof(user_dir), "%s/%s", STORAGE_PATH, username);
-
-    if (mkdir(STORAGE_PATH, 0755) == -1 && errno != EEXIST) {
-        perror("Erreur lors de la création du dossier de stockage");
-        exit(EXIT_FAILURE);
-    }
-
-    if (mkdir(user_dir, 0755) == -1 && errno != EEXIST) {
-        perror("Erreur lors de la création du dossier utilisateur");
-        exit(EXIT_FAILURE);
-    }
-}
-
-int create_user(const char *username, const char *password) {
-    if (user_exists(username)) {
-        printf("Erreur : L'utilisateur '%s' existe déjà.\n", username);
-        return 0;
-    }
-
-    char hashed_password[65];
-    hash_password(password, hashed_password);
-
-    FILE *db = fopen(DB_FILE, "a");
+// Vérifier l'existence d'un utilisateur et ses identifiants
+int authenticate_user(const char *username, const char *password, int *is_new_user) {
+    char line[MAX_MSG_SIZE], file_hash[MAX_MSG_SIZE], input_hash[MAX_MSG_SIZE];
+    FILE *db = fopen(USER_DB, "a+");
     if (!db) {
         perror("Erreur lors de l'ouverture de la base de données");
         return 0;
     }
 
-    fprintf(db, "%s:%s\n", username, hashed_password);
-    fclose(db);
+    hash_password(password, input_hash);
 
-    create_user_directory(username);
-    printf("Utilisateur '%s' créé avec succès.\n", username);
+    while (fgets(line, sizeof(line), db)) {
+        char stored_username[MAX_MSG_SIZE];
+        sscanf(line, "%s %s", stored_username, file_hash);
+        if (strcmp(stored_username, username) == 0) {
+            fclose(db);
+            if (strcmp(file_hash, input_hash) == 0) {
+                *is_new_user = 0;
+                return 1; // Authentification réussie
+            }
+            return 0; // Mot de passe incorrect
+        }
+    }
+
+    // Nouvel utilisateur
+    fprintf(db, "%s %s\n", username, input_hash);
+    *is_new_user = 1;
+    fclose(db);
     return 1;
 }
+// Gérer les requêtes
+void handle_request(const char *msg) {
+    char command[MAX_MSG_SIZE], username[MAX_MSG_SIZE], password[MAX_MSG_SIZE];
+    char buffer[MAX_MSG_SIZE];
 
-int login_user(const char *username, const char *password) {
-    if (!user_exists(username)) {
-        printf("Erreur : L'utilisateur '%s' n'existe pas.\n", username);
-        return 0;
-    }
+    sscanf(msg, "%[^:]:%[^:]:%s", command, username, password);
 
-    char hashed_password[65];
-    hash_password(password, hashed_password);
-
-    FILE *db = fopen(DB_FILE, "r");
-    if (!db) {
-        perror("Erreur lors de l'ouverture de la base de données");
-        return 0;
-    }
-
-    char line[256];
-    while (fgets(line, sizeof(line), db)) {
-        char stored_username[128], stored_password[65];
-        sscanf(line, "%127[^:]:%64s", stored_username, stored_password);
-
-        if (strcmp(username, stored_username) == 0) {
-            fclose(db);
-            if (strcmp(hashed_password, stored_password) == 0) {
-                printf("Connexion réussie pour '%s'.\n", username);
-                return 1;
+    if (strcmp(command, "LOGIN") == 0) {
+        int is_new_user;
+        if (authenticate_user(username, password, &is_new_user)) {
+            snprintf(buffer, MAX_MSG_SIZE, "SUCCESS");
+            if (is_new_user) {
+                char user_dir[MAX_MSG_SIZE];
+                snprintf(user_dir, MAX_MSG_SIZE, "mkdir -p db/%s", username);
+                system(user_dir);
+                printf("Nouvel utilisateur %s créé.\n", username);
             } else {
-                printf("Erreur : Mot de passe incorrect.\n");
-                return 0;
+                printf("Utilisateur %s connecté.\n", username);
             }
+        } else {
+            snprintf(buffer, MAX_MSG_SIZE, "ERREUR : Mot de passe incorrect.");
+        }
+    } else if (strncmp(msg, "UPLOAD:", 7) == 0) {
+        const char *filename = msg + 7;
+        const char *filedata = strchr(filename, ':') + 1;
+        char file[MAX_MSG_SIZE];
+
+        sscanf(filename, "%[^:]", file);
+
+        FILE *f = fopen(file, "wb");
+        if (!f) {
+            perror("Erreur lors de l'écriture du fichier");
+            return;
+        }
+
+        fwrite(filedata, 1, strlen(filedata), f);
+        fclose(f);
+        printf("Fichier %s reçu et enregistré.\n", file);
+    } else if (strcmp(msg, "LIST") == 0) {
+        // Liste des fichiers
+        system("ls > files.txt");
+        printf("Liste des fichiers envoyée.\n");
+    } else if (strncmp(msg, "DOWNLOAD:", 9) == 0) {
+        // Télécharger un fichier
+        const char *filename = msg + 9;
+        FILE *file = fopen(filename, "rb");
+        if (!file) {
+            perror("Fichier introuvable");
+            return;
+        }
+
+        char buffer[MAX_MSG_SIZE];
+        fread(buffer, 1, MAX_MSG_SIZE, file);
+        fclose(file);
+
+        printf("Fichier %s préparé pour le téléchargement.\n", filename);
+    } else {
+        printf("Commande inconnue : %s\n", msg);
+    }
+    // Autres commandes (UPLOAD, LIST, DOWNLOAD)
+    // ...
+}
+
+int main_server() {
+    char buffer[MAX_MSG_SIZE];
+    startserver(8080);
+    /*if (startserver(8080) < 0) {
+        fprintf(stderr, "Erreur lors du démarrage du serveur\n");
+        return 1;
+    }*/
+
+    printf("Serveur en écoute sur le port 8080...\n");
+    while (1) {
+        if (getmsg(buffer) > 0) {
+            handle_request(buffer);
         }
     }
 
-    fclose(db);
+    stopserver();
     return 0;
-}
-
-int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        printf("Usage:\n");
-        printf("  %s -start               Start the server\n", argv[0]);
-        printf("  %s -up <file>           Upload file directly to the server\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    if (strcmp(argv[1], "-up") == 0 && argc == 3) {
-        startserver();
-        uploadFile(argv[2]);
-    } else if (strcmp(argv[1], "-create") == 0 && argc == 4) {
-        create_user(argv[2], argv[3]);
-    } else if (strcmp(argv[1], "-login") == 0 && argc == 4) {
-        login_user(argv[2], argv[3]);
-    } else {
-        printf("Unknown option or missing argument\n");
-        printf("Usage:\n");
-        printf("  %s -up <file>           Upload file directly to the server\n", argv[0]);
-        printf("  %s -list                List the files stored by the employee on the server\n", argv[0]);
-        printf("  %s -down <file>         Download file from the server\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
 }
