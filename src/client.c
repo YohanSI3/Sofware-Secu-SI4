@@ -86,11 +86,22 @@ int is_logged_in() {
 void login() {
     char username[MAX_MSG_SIZE], password[MAX_MSG_SIZE], buffer[MAX_MSG_SIZE];
     printf("Entrez votre nom d'utilisateur : ");
-    scanf("%s", username);
-    printf("Entrez votre mot de passe : ");
-    scanf("%s", password);
+    if (fgets(username, sizeof(username), stdin) == NULL) {
+        fprintf(stderr, "Erreur lors de la lecture du nom d'utilisateur\n");
+        return;
+    }
+    username[strcspn(username, "\n")] = '\0';  // Retirer le caractère de nouvelle ligne
 
+    printf("Entrez votre mot de passe : ");
+    if (fgets(password, sizeof(password), stdin) == NULL) {
+        fprintf(stderr, "Erreur lors de la lecture du mot de passe\n");
+        return;
+    }
+    password[strcspn(password, "\n")] = '\0';  // Retirer le caractère de nouvelle ligne
+
+    printf("test\n");
     snprintf(buffer, MAX_MSG_SIZE, "LOGIN:%s:%s", username, password);
+    printf("%s", buffer);
 
     if (sndmsg(buffer, SERVER_PORT) < 0) {
         fprintf(stderr, "Erreur lors de l'envoi de la demande de connexion\n");
