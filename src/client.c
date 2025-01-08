@@ -84,7 +84,7 @@ int is_logged_in() {
 
 // Fonction de login
 void login() {
-    char username[MAX_MSG_SIZE], password[MAX_MSG_SIZE], buffer[MAX_MSG_SIZE];
+    char username[128], password[128], buffer[MAX_MSG_SIZE];
     printf("Entrez votre nom d'utilisateur : ");
     if (fgets(username, sizeof(username), stdin) == NULL) {
         fprintf(stderr, "Erreur lors de la lecture du nom d'utilisateur\n");
@@ -101,15 +101,15 @@ void login() {
 
     printf("test\n");
     snprintf(buffer, MAX_MSG_SIZE, "LOGIN:%s:%s", username, password);
-    printf("%s", buffer);
+    printf("%s\n", buffer);
 
-    if (sndmsg(buffer, SERVER_PORT) < 0) {
+    if (sndmsg(buffer, SERVER_PORT) != 0) {
         fprintf(stderr, "Erreur lors de l'envoi de la demande de connexion\n");
         return;
     }
 
     char response[MAX_MSG_SIZE];
-    if (getmsg(response) > 0) {
+    if (getmsg(response) == 0) {
         if (strcmp(response, "SUCCESS") == 0) {
             strcpy(logged_in_user, username);
             printf("Connexion réussie en tant que %s\n", username);
@@ -171,9 +171,10 @@ void list_files() {
         fprintf(stderr, "Erreur lors de l'envoi de la commande LIST\n");
         return;
     }
-
+    
     char response[MAX_MSG_SIZE];
-    if (getmsg(response) > 0) {
+    memset(response, 0, sizeof(response));
+    if (getmsg(response) == 0) {
         printf("Liste des fichiers :\n%s\n", response);
     } else {
         printf("Erreur lors de la réception de la liste des fichiers.\n");
@@ -204,20 +205,42 @@ void download_file(const char *filename) {
         return;
     }
 
-    char response[MAX_MSG_SIZE];
-    while (getmsg(response) > 0) {
-        fwrite(response, 1, strlen(response), file);
+    // Recevoir les données du fichier
+    while (1) {
+        memset(buffer, 0, sizeof(buffer));
+        if (getmsg(buffer) < 0) {
+            perror("Erreur lors de la réception des données");
+            fclose(file);
+            return;
+        }
+
+        if (strcmp(buffer, "FINISHED") == 0) {
+            break;  // Fin de la transmission
+        }
+
+        if (strncmp(buffer, "ERROR:", 6) == 0) {
+            printf("Erreur du serveur : %s\n", buffer + 6);
+            fclose(file);
+            remove(encrypted_file);  // Supprimer le fichier incomplet
+            return;
+        }
+
+        fwrite(buffer, 1, strlen(buffer), file);
     }
     fclose(file);
 
     // Déchiffrer le fichier téléchargé
-    if (decrypt_file(encrypted_file, filename) < 0) {
-        printf("Erreur lors du déchiffrement du fichier téléchargé %s.\n", filename);
+    char decrypted_file[MAX_MSG_SIZE];
+    snprintf(decrypted_file, sizeof(decrypted_file), "downloaded_%s", filename);
+
+    if (decrypt_file(encrypted_file, decrypted_file) < 0) {
+        printf("Erreur lors du déchiffrement du fichier téléchargé.\n");
+        remove(encrypted_file);
         return;
     }
 
-    remove(encrypted_file); // Supprimer le fichier chiffré temporaire
-    printf("Fichier %s téléchargé et déchiffré avec succès.\n", filename);
+    printf("Fichier téléchargé et déchiffré avec succès : %s\n", decrypted_file);
+    remove(encrypted_file);  // Supprimer le fichier chiffré temporaire
 }
 
 // Main

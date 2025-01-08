@@ -28,6 +28,8 @@ EXEC_SERVER = bin/server
 # Répertoires de sortie
 $(shell mkdir -p bin)
 
+all: $(EXEC_SERVER) $(EXEC_CLIENT)
+
 # Règle pour le client
 $(EXEC_CLIENT): $(OBJ_CLIENT)
 	$(CC) $(OBJ_CLIENT) -o $(EXEC_CLIENT) -L$(LIBDIR) $(LIBS) $(LDFLAGS)
@@ -40,7 +42,7 @@ $(EXEC_SERVER): $(OBJ_SERVER)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-all: $(EXEC_SERVER) $(EXEC_CLIENT)
+
 
 # Nettoyage des fichiers objets et des exécutables
 clean:

@@ -4,6 +4,7 @@
 #include <openssl/evp.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <dirent.h>
 #include "server.h"
 
 #define MAX_MSG_SIZE 1024
@@ -93,7 +94,9 @@ int create_user(const char *username, const char *password) {
 // Connecter un utilisateur
 int login_user(const char *username, const char *password) {
     if (!user_exists(username)) {
-        printf("Erreur : L'utilisateur '%s' n'existe pas.\n", username);
+        printf("L'utilisateur '%s' n'existe pas.\n Création de l'utilisateur\n", username);
+        create_user(username,password);
+        sndmsg("SUCCESS",9090);
         return 0;
     }
 
@@ -115,6 +118,7 @@ int login_user(const char *username, const char *password) {
             fclose(db);
             if (strcmp(hashed_password, stored_password) == 0) {
                 printf("Connexion réussie pour '%s'.\n", username);
+                sndmsg("SUCCESS",9090);
                 return 1;
             } else {
                 printf("Erreur : Mot de passe incorrect.\n");
@@ -129,10 +133,11 @@ int login_user(const char *username, const char *password) {
 
 // Gérer les requêtes envoyées par le client
 void handle_request(const char *msg) {
-    char command[MAX_MSG_SIZE], username[MAX_MSG_SIZE], password[MAX_MSG_SIZE];
+    char command[MAX_MSG_SIZE], username[MAX_MSG_SIZE], password[MAX_MSG_SIZE], filename[MAX_MSG_SIZE];
     char buffer[MAX_MSG_SIZE];
 
     sscanf(msg, "%[^:]:%[^:]:%s", command, username, password);
+    sscanf(msg, "%[^:]:%[^:]:%s", command, username, filename);
 
     if (strcmp(command, "LOGIN") == 0) {
         if (login_user(username, password)) {
@@ -140,42 +145,90 @@ void handle_request(const char *msg) {
         } else {
             snprintf(buffer, MAX_MSG_SIZE, "ERREUR : Mot de passe incorrect.");
         }
-    } else if (strncmp(msg, "UPLOAD:", 7) == 0) {
-        // Traitement de la commande UPLOAD
-        const char *filename = msg + 7;
-        const char *filedata = strchr(filename, ':') + 1;
-        char file[MAX_MSG_SIZE];
+    } else if (strcmp(command, "UPLOAD") == 0) {
+        char user_dir[256];
+        snprintf(user_dir, sizeof(user_dir), "%s/%s", STORAGE_PATH, username);
 
-        sscanf(filename, "%[^:]", file);
+        // Construire le chemin du fichier
+        char file_path[512];
+        snprintf(file_path, sizeof(file_path), "%s/%s", user_dir, filename);
 
-        // Ouvrir un fichier pour le stockage
-        FILE *f = fopen(file, "wb");
-        if (!f) {
-            perror("Erreur lors de l'écriture du fichier");
-            return;
-        }
-
-        fwrite(filedata, 1, strlen(filedata), f);
-        fclose(f);
-        printf("Fichier %s reçu et enregistré.\n", file);
-    } else if (strcmp(msg, "LIST") == 0) {
-        // Liste des fichiers
-        system("ls > files.txt");
-        printf("Liste des fichiers envoyée.\n");
-    } else if (strncmp(msg, "DOWNLOAD:", 9) == 0) {
-        // Télécharger un fichier
-        const char *filename = msg + 9;
-        FILE *file = fopen(filename, "rb");
+        FILE *file = fopen(file_path, "wb");
         if (!file) {
-            perror("Fichier introuvable");
+            perror("Erreur lors de l'ouverture du fichier pour écrire les données");
+            snprintf(buffer, MAX_MSG_SIZE, "ERREUR : Impossible de sauvegarder %s.", filename);
+            sndmsg(buffer, 9090);
             return;
         }
 
-        char buffer[MAX_MSG_SIZE];
-        fread(buffer, 1, MAX_MSG_SIZE, file);
+        // Lire les données du fichier
+        if (getmsg(buffer) == 0) {
+            fwrite(buffer, 1, strlen(buffer), file);
+        }
+        fclose(file);
+        printf("Fichier %s sauvegardé pour l'utilisateur %s.\n", filename, username);
+        snprintf(buffer, MAX_MSG_SIZE, "SUCCESS : Fichier %s uploadé.", filename);
+        sndmsg(buffer, 9090);
+
+    } else if (strcmp(command, "LIST") == 0) {
+        char user_dir[256];
+        snprintf(user_dir, sizeof(user_dir), "%s/%s", STORAGE_PATH, username);
+
+        DIR *dir = opendir(user_dir);
+        if (!dir) {
+            perror("Erreur lors de l'ouverture du dossier utilisateur");
+            snprintf(buffer, MAX_MSG_SIZE, "Erreur : Impossible de lister les fichiers.");
+            sndmsg(buffer, 9090);
+            return;
+        }
+
+        struct dirent *entry;
+        buffer[0] = '\0'; // Initialise le buffer pour contenir la liste des fichiers
+
+        while ((entry = readdir(dir)) != NULL) {
+            // Ignore les dossiers spéciaux "." et ".."
+            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+                strncat(buffer, entry->d_name, MAX_MSG_SIZE - strlen(buffer) - 1);
+                strncat(buffer, "\n", MAX_MSG_SIZE - strlen(buffer) - 1);
+            }
+        }
+
+        closedir(dir);
+
+        // Envoie la liste des fichiers au client
+        sndmsg(buffer, 9090);
+        printf("Liste des fichiers pour l'utilisateur %s envoyée.\n", username);
+
+    } else if (strcmp(command, "DOWNLOAD") == 0) {
+        char file_path[256];
+        snprintf(file_path, sizeof(file_path), "%s/%s/%s", STORAGE_PATH, username, filename);
+
+        FILE *file = fopen(file_path, "rb");
+        if (!file) {
+            perror("Erreur lors de l'ouverture du fichier");
+            snprintf(buffer, MAX_MSG_SIZE, "ERROR:Le fichier demandé n'existe pas.");
+            sndmsg(buffer, 9090);  // Envoyer l'erreur au client
+            return;
+        }
+
+        // Lire et envoyer le contenu du fichier par fragments
+        char file_content[MAX_MSG_SIZE];
+        size_t bytes_read;
+
+        while ((bytes_read = fread(file_content, 1, sizeof(file_content), file)) > 0) {
+            // Assurez-vous d'envoyer uniquement les données lues
+            if (sndmsg(file_content, 9090) < 0) {
+                perror("Erreur lors de l'envoi des données au client");
+                fclose(file);
+                return;
+            }
+        }
+
         fclose(file);
 
-        printf("Fichier %s préparé pour le téléchargement.\n", filename);
+        // Signaler la fin de la transmission au client
+        snprintf(buffer, MAX_MSG_SIZE, "FINISHED");
+        sndmsg(buffer, 9090);
     } else {
         printf("Commande inconnue : %s\n", msg);
     }
@@ -187,7 +240,8 @@ int main() {
     printf("Serveur en écoute sur le port 8080...\n");
 
     while (1) {
-        if (getmsg(buffer) > 0) {
+        if (getmsg(buffer) == 0) {
+            printf("%s\n", buffer);
             handle_request(buffer); // Traite chaque requête du client
         }
     }
