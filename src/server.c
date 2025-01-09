@@ -12,7 +12,7 @@
 #define STORAGE_PATH "./users"
 #define SALT "random_salt" // Sel utilisé pour le hachage des mots de passe
 
-// Hacher un mot de passe avec SHA256 et un sel
+// Hache un mot de passe avec SHA256 et un sel
 void hash_password(const char *password, char *hashed_password) { 
     unsigned char hash[EVP_MAX_MD_SIZE];
     unsigned int hash_len;
@@ -32,7 +32,7 @@ void hash_password(const char *password, char *hashed_password) {
     hashed_password[hash_len * 2] = '\0';
 }
 
-// Vérifier si un utilisateur existe
+// Vérifie si un utilisateur existe
 int user_exists(const char *username) {
     FILE *db = fopen(DB_FILE, "r");
     if (!db) return 0;
@@ -51,7 +51,7 @@ int user_exists(const char *username) {
     return 0;
 }
 
-// Créer le dossier utilisateur pour le stockage des fichiers
+// Crée le dossier utilisateur pour le stockage des fichiers
 void create_user_directory(const char *username) {
     char user_dir[256];
     snprintf(user_dir, sizeof(user_dir), "%s/%s", STORAGE_PATH, username);
@@ -67,7 +67,7 @@ void create_user_directory(const char *username) {
     }
 }
 
-// Créer un nouvel utilisateur
+// Crée un nouvel utilisateur
 int create_user(const char *username, const char *password) {
     if (user_exists(username)) {
         printf("Erreur : L'utilisateur '%s' existe déjà.\n", username);
@@ -91,7 +91,7 @@ int create_user(const char *username, const char *password) {
     return 1;
 }
 
-// Connecter un utilisateur
+// Fonction pour connecter un utilisateur
 int login_user(const char *username, const char *password) {
     if (!user_exists(username)) {
         printf("L'utilisateur '%s' n'existe pas.\n Création de l'utilisateur\n", username);
@@ -149,7 +149,6 @@ void handle_request(const char *msg) {
         char user_dir[256];
         snprintf(user_dir, sizeof(user_dir), "%s/%s", STORAGE_PATH, username);
 
-        // Construire le chemin du fichier
         char file_path[512];
         snprintf(file_path, sizeof(file_path), "%s/%s", user_dir, filename);
 
@@ -161,7 +160,7 @@ void handle_request(const char *msg) {
             return;
         }
 
-        // Lire les données du fichier
+        // Lis les données du fichier
         if (getmsg(buffer) == 0) {
             fwrite(buffer, 1, strlen(buffer), file);
         }
@@ -207,16 +206,15 @@ void handle_request(const char *msg) {
         if (!file) {
             perror("Erreur lors de l'ouverture du fichier");
             snprintf(buffer, MAX_MSG_SIZE, "ERROR:Le fichier demandé n'existe pas.");
-            sndmsg(buffer, 9090);  // Envoyer l'erreur au client
+            sndmsg(buffer, 9090);
             return;
         }
 
-        // Lire et envoyer le contenu du fichier par fragments
+        // Lis et envoie le contenu du fichier par fragments
         char file_content[MAX_MSG_SIZE];
         size_t bytes_read;
 
         while ((bytes_read = fread(file_content, 1, sizeof(file_content), file)) > 0) {
-            // Assurez-vous d'envoyer uniquement les données lues
             if (sndmsg(file_content, 9090) < 0) {
                 perror("Erreur lors de l'envoi des données au client");
                 fclose(file);
@@ -225,8 +223,6 @@ void handle_request(const char *msg) {
         }
 
         fclose(file);
-
-        // Signaler la fin de la transmission au client
         snprintf(buffer, MAX_MSG_SIZE, "FINISHED");
         sndmsg(buffer, 9090);
     } else {
@@ -241,7 +237,6 @@ int main() {
 
     while (1) {
         if (getmsg(buffer) == 0) {
-            printf("%s\n", buffer);
             handle_request(buffer); // Traite chaque requête du client
         }
     }

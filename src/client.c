@@ -37,7 +37,6 @@ int encrypt_file(const char *input_path, const char *output_path) {
     size_t bytes_read;
 
     while ((bytes_read = fread(buffer, 1, AES_BLOCK_SIZE, input)) > 0) {
-        // Remplir le dernier bloc si nécessaire
         if (bytes_read < AES_BLOCK_SIZE) {
             memset(buffer + bytes_read, AES_BLOCK_SIZE - bytes_read, AES_BLOCK_SIZE - bytes_read);
             bytes_read = AES_BLOCK_SIZE;
@@ -90,18 +89,15 @@ void login() {
         fprintf(stderr, "Erreur lors de la lecture du nom d'utilisateur\n");
         return;
     }
-    username[strcspn(username, "\n")] = '\0';  // Retirer le caractère de nouvelle ligne
+    username[strcspn(username, "\n")] = '\0';  // Retire le caractère de nouvelle ligne
 
     printf("Entrez votre mot de passe : ");
     if (fgets(password, sizeof(password), stdin) == NULL) {
         fprintf(stderr, "Erreur lors de la lecture du mot de passe\n");
         return;
     }
-    password[strcspn(password, "\n")] = '\0';  // Retirer le caractère de nouvelle ligne
-
-    printf("test\n");
+    password[strcspn(password, "\n")] = '\0';  // Retire le caractère de nouvelle ligne
     snprintf(buffer, MAX_MSG_SIZE, "LOGIN:%s:%s", username, password);
-    printf("%s\n", buffer);
 
     if (sndmsg(buffer, SERVER_PORT) != 0) {
         fprintf(stderr, "Erreur lors de l'envoi de la demande de connexion\n");
@@ -154,7 +150,7 @@ void upload_file(const char *filename) {
 
     printf("Fichier %s envoyé avec succès.\n", filename);
     fclose(file);
-    remove(encrypted_file); // Supprimer le fichier temporaire
+    remove(encrypted_file);
 }
 
 // Fonction pour demander la liste des fichiers
@@ -205,7 +201,7 @@ void download_file(const char *filename) {
         return;
     }
 
-    // Recevoir les données du fichier
+    // Reception des données du fichier
     while (1) {
         memset(buffer, 0, sizeof(buffer));
         if (getmsg(buffer) < 0) {
@@ -221,7 +217,7 @@ void download_file(const char *filename) {
         if (strncmp(buffer, "ERROR:", 6) == 0) {
             printf("Erreur du serveur : %s\n", buffer + 6);
             fclose(file);
-            remove(encrypted_file);  // Supprimer le fichier incomplet
+            remove(encrypted_file);
             return;
         }
 
@@ -229,7 +225,7 @@ void download_file(const char *filename) {
     }
     fclose(file);
 
-    // Déchiffrer le fichier téléchargé
+    // Déchiffre le fichier téléchargé
     char decrypted_file[MAX_MSG_SIZE];
     snprintf(decrypted_file, sizeof(decrypted_file), "downloaded_%s", filename);
 
@@ -240,10 +236,9 @@ void download_file(const char *filename) {
     }
 
     printf("Fichier téléchargé et déchiffré avec succès : %s\n", decrypted_file);
-    remove(encrypted_file);  // Supprimer le fichier chiffré temporaire
+    remove(encrypted_file);
 }
 
-// Main
 int main(int argc, char *argv[]) {
     if (startserver(CLIENT_PORT) < 0) {
         fprintf(stderr, "Erreur lors du démarrage du serveur client.\n");
@@ -257,7 +252,7 @@ int main(int argc, char *argv[]) {
         char command[MAX_MSG_SIZE];
         printf("> ");
         fgets(command, MAX_MSG_SIZE, stdin);
-        command[strcspn(command, "\n")] = 0; // Supprimer le saut de ligne
+        command[strcspn(command, "\n")] = 0; // Supprime le saut de ligne
 
         if (strcmp(command, "login") == 0) {
             login();
